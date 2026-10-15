@@ -32,6 +32,7 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import java.text.SimpleDateFormat
@@ -47,6 +48,7 @@ class MainActivity : Activity() {
     private var lastLiveSpeedMps = 0f
     private var lastLocatedAt = 0L
     private var previewing = false
+    private var previewTripId: Long? = null
 
     private lateinit var statusText: TextView
     private lateinit var speedText: TextView
@@ -55,6 +57,7 @@ class MainActivity : Activity() {
     private lateinit var timeText: TextView
     private lateinit var primaryButton: TextView
     private lateinit var finishButton: TextView
+    private lateinit var previewCloseButton: TextView
 
     private val handler = Handler(Looper.getMainLooper())
     private val ticker = object : Runnable {
@@ -69,7 +72,7 @@ class MainActivity : Activity() {
             }
             reloadAll()
             val trip = db.unfinishedTrip()
-            if (trip?.status == "active") panToLastPoint(trip.id, false)
+            if (trip?.status == "active" && !previewing) panToLastPoint(trip.id, false)
         }
     }
 
@@ -97,6 +100,7 @@ class MainActivity : Activity() {
         timeText = findViewById(R.id.timeText)
         primaryButton = findViewById(R.id.primaryButton)
         finishButton = findViewById(R.id.finishButton)
+        previewCloseButton = findViewById(R.id.previewCloseButton)
 
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync { m ->
@@ -114,6 +118,7 @@ class MainActivity : Activity() {
         }
 
         findViewById<View>(R.id.historyButton).setOnClickListener { showHistory() }
+        previewCloseButton.setOnClickListener { clearPreview() }
         findViewById<View>(R.id.locateButton).setOnClickListener {
             if (hasFineLocation()) locateUser() else askLocationPermission(false)
         }
@@ -121,8 +126,7 @@ class MainActivity : Activity() {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.openstreetmap.org/copyright")))
         }
         primaryButton.setOnClickListener {
-            previewing = false
-            fog.showPreview(null)
+            clearPreview()
             when (db.unfinishedTrip()?.status) {
                 "active" -> sendAction(TrackingService.ACTION_PAUSE)
                 "paused" -> sendAction(TrackingService.ACTION_RESUME)
@@ -213,28 +217,83 @@ class MainActivity : Activity() {
     }
 
     private fun updateNumbers() {
-        val trip = db.unfinishedTrip()
-        if (trip?.status != "active") lastLiveSpeedMps = 0f
-        statusText.text = when (trip?.status) {
-            "active" -> "●  ИДЁТ ЗАПИСЬ ПОЕЗДКИ"
-            "paused" -> "Ⅱ  ПАУЗА · ТУМАН НЕ ОТКРЫВАЕТСЯ"
-            else -> if (previewing) "ПРОСМОТР МАРШРУТА" else "ГОТОВ К ИССЛЕДОВАНИЮ"
+        val recordingTrip = db.unfinishedTrip()
+        val viewedTrip = if (previewing) previewTripId?.let { db.getTrip(it) } else null
+        val displayedTrip = viewedTrip ?: recordingTrip
+        if (recordingTrip?.status != "active") lastLiveSpeedMps = 0f
+        statusText.text = when {
+            viewedTrip != null -> "ПРОСМОТР · МАКС. СКОРОСТЬ"
+            recordingTrip?.status == "active" -> "●  ИДЁТ ЗАПИСЬ ПОЕЗДКИ"
+            recordingTrip?.status == "paused" -> "Ⅱ  ПАУЗА · ТУМАН НЕ ОТКРЫВАЕТСЯ"
+            else -> "ГОТОВ К ИССЛЕДОВАНИЮ"
         }
-        val speedKmh = if (trip?.status == "active") lastLiveSpeedMps * 3.6 else 0.0
+        val speedKmh = if (viewedTrip != null) viewedTrip.maxSpeedMps * 3.6
+            else if (recordingTrip?.status == "active") lastLiveSpeedMps * 3.6 else 0.0
         speedText.text = String.format(Locale.US, "%.1f", speedKmh)
-        distanceText.text = String.format(Locale.US, "%.2f км", (trip?.distanceM ?: 0.0) / 1000.0)
-        val duration = trip?.elapsed() ?: 0L
-        val average = if (duration > 0L) (trip!!.distanceM / duration.toDouble()) * 3600.0 else 0.0
+        distanceText.text = String.format(Locale.US, "%.2f км", (displayedTrip?.distanceM ?: 0.0) / 1000.0)
+        val duration = displayedTrip?.elapsed() ?: 0L
+        val average = if (duration > 0L) ((displayedTrip?.distanceM ?: 0.0) / duration.toDouble()) * 3600.0 else 0.0
         averageText.text = String.format(Locale.US, "%.1f км/ч", average)
         val seconds = duration / 1000L
         timeText.text = if (seconds >= 3600) String.format(Locale.US, "%d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60)
             else String.format(Locale.US, "%02d:%02d", seconds / 60, seconds % 60)
-        primaryButton.text = when (trip?.status) {
+        primaryButton.text = when (recordingTrip?.status) {
             "active" -> "Ⅱ   Пауза"
             "paused" -> "▶   Продолжить"
             else -> "●   Начать поездку"
         }
-        finishButton.visibility = if (trip != null) View.VISIBLE else View.GONE
+        finishButton.visibility = if (recordingTrip != null) View.VISIBLE else View.GONE
+    }
+
+    private fun clearPreview() {
+        previewing = false
+        previewTripId = null
+        fog.showPreview(null)
+        previewCloseButton.visibility = View.GONE
+        updateNumbers()
+    }
+
+    /** Fit the complete selected trip between the top controls and bottom tracking panel. */
+    private fun showTripOnMap(tripId: Long, points: List<TripDatabase.TrackPoint>) {
+        previewing = true
+        previewTripId = tripId
+        previewCloseButton.visibility = View.VISIBLE
+        fog.showPreview(points)
+        updateNumbers()
+        mapView.post {
+            val current = map ?: return@post
+            if (previewTripId != tripId || points.isEmpty()) return@post
+            val distinct = points.any { it.lat != points[0].lat || it.lon != points[0].lon }
+            if (!distinct) {
+                current.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(points[0].lat, points[0].lon), 16.0))
+            } else {
+                val bounds = LatLngBounds.Builder()
+                for (point in points) bounds.include(LatLng(point.lat, point.lon))
+                // The bottom data panel obscures ~260dp of the map.
+                current.animateCamera(CameraUpdateFactory.newLatLngBounds(
+                    bounds.build(), px(36), px(150), px(36), px(310)
+                ))
+            }
+        }
+    }
+
+    private fun confirmDeleteTrip(trip: TripDatabase.Trip, historyDialog: Dialog) {
+        AlertDialog.Builder(this)
+            .setTitle("Удалить поездку?")
+            .setMessage("Запись, её километры и GPS-точки будут удалены без восстановления. " +
+                "Участки карты, открытые только этой поездкой, снова покроются туманом. " +
+                "Территории других поездок сохранятся.")
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Удалить") { _, _ ->
+                if (db.deleteFinishedTrip(trip.id)) {
+                    if (previewTripId == trip.id) clearPreview()
+                    reloadAll()
+                    historyDialog.dismiss()
+                    showHistory()
+                    toast("Поездка удалена")
+                } else toast("Заверши поездку перед удалением")
+            }
+            .show()
     }
 
     private fun showHistory() {
@@ -275,21 +334,39 @@ class MainActivity : Activity() {
             card.addView(label(String.format(Locale.US, "Макс. %.1f км/ч   ·   %d мин в пути",
                 trip.maxSpeedMps * 3.6, trip.elapsed() / 60_000L),
                 12f, 0xFFA9B9C2.toInt(), false).apply { setPadding(0, 0, 0, px(7)) })
-            card.addView(label(if (trip.status == "finished") "Просмотреть маршрут →" else "Незавершённая поездка →",
-                12f, 0xFFB8F7CF.toInt(), false))
+            val actions = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val viewRoute = label(if (trip.status == "finished") "Просмотреть маршрут →" else "Текущая поездка →",
+                13f, 0xFFB8F7CF.toInt(), true).apply {
+                setPadding(0, px(9), px(8), px(7))
+            }
+            actions.addView(viewRoute, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            if (trip.status == "finished") {
+                val delete = label("Удалить", 13f, 0xFFFFB6AF.toInt(), false).apply {
+                    setPadding(px(12), px(10), 0, px(8))
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = "Удалить поездку ${formatter.format(Date(trip.startedAt))}"
+                    setOnClickListener { confirmDeleteTrip(trip, dialog) }
+                }
+                actions.addView(delete)
+            }
+            card.addView(actions)
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             lp.bottomMargin = px(11)
             content.addView(card, lp)
-            card.setOnClickListener {
+            val openRoute = View.OnClickListener {
                 val points = db.points(trip.id)
-                if (points.isEmpty()) { toast("Для этой поездки ещё нет GPS-точек"); return@setOnClickListener }
-                previewing = true
-                fog.showPreview(points)
-                val first = points.first()
-                map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(first.lat, first.lon), 15.0))
-                updateNumbers()
-                dialog.dismiss()
+                if (points.isEmpty()) { toast("Для этой поездки ещё нет GPS-точек") }
+                else {
+                    showTripOnMap(trip.id, points)
+                    dialog.dismiss()
+                }
             }
+            card.setOnClickListener(openRoute)
+            viewRoute.setOnClickListener(openRoute)
         }
         val scroll = ScrollView(this).apply {
             isFillViewport = false

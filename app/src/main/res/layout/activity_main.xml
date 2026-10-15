@@ -66,6 +66,24 @@
             android:contentDescription="История поездок" />
     </LinearLayout>
 
+    <TextView
+        android:id="@+id/previewCloseButton"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="88dp"
+        android:background="@drawable/glass_pill"
+        android:gravity="center"
+        android:paddingHorizontal="20dp"
+        android:text="✕  Закрыть маршрут"
+        android:textColor="#17252D"
+        android:fontFamily="sans-serif-medium"
+        android:textSize="14sp"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="Закрыть просмотр маршрута" />
+
     <LinearLayout
         android:id="@+id/locateButton"
         android:layout_width="48dp"

@@ -127,6 +127,27 @@ class TripDatabase(context: Context) : SQLiteOpenHelper(context, "unfog_trips.db
         writableDatabase.update("trips", values, "id=?", arrayOf(id.toString()))
     }
 
+    /**
+     * Deletes one finished trip and its GPS samples atomically. The fog is reconstructed
+     * from every remaining trip; regions visited on other trips remain uncovered.
+     * An active or paused trip must first be finished, preventing service/write races.
+     */
+    @Synchronized fun deleteFinishedTrip(tripId: Long): Boolean {
+        val database = writableDatabase
+        database.beginTransaction()
+        try {
+            val trip = getTrip(tripId) ?: return false
+            if (trip.status != "finished") return false
+            val where = arrayOf(tripId.toString())
+            database.delete("track_points", "trip_id=?", where)
+            val deleted = database.delete("trips", "id=? AND status='finished'", where) == 1
+            if (deleted) database.setTransactionSuccessful()
+            return deleted
+        } finally {
+            database.endTransaction()
+        }
+    }
+
     @Synchronized fun lastPoint(tripId: Long, segment: Int): TrackPoint? {
         readableDatabase.rawQuery("""SELECT trip_id, segment, time_ms, lat, lon, speed_mps, accuracy_m
             FROM track_points WHERE trip_id=? AND segment=? ORDER BY id DESC LIMIT 1""",

@@ -117,10 +117,22 @@ class FogOverlay @JvmOverloads constructor(
             for (points in groups.values) {
                 if (points.size < 2) continue
                 val path = projectedPath(m, points, false)
-                trackGlow.apply { color = Color.argb(52, 130, 255, 193); strokeWidth = 12f * dp }
+                val selectedRoute = preview != null
+                trackGlow.apply { color = Color.argb(if (selectedRoute) 82 else 52, 130, 255, 193); strokeWidth = (if (selectedRoute) 15f else 12f) * dp }
                 canvas.drawPath(path, trackGlow)
-                trackGlow.apply { color = Color.argb(235, 151, 250, 194); strokeWidth = 3.1f * dp }
+                if (selectedRoute) {
+                    trackGlow.apply { color = Color.argb(225, 18, 44, 43); strokeWidth = 6.5f * dp }
+                    canvas.drawPath(path, trackGlow)
+                }
+                trackGlow.apply { color = Color.argb(255, 151, 250, 194); strokeWidth = (if (selectedRoute) 3.8f else 3.1f) * dp }
                 canvas.drawPath(path, trackGlow)
+            }
+            // Selected historical track: clearly visible with start/finish markers.
+            preview?.takeIf { it.isNotEmpty() }?.let { selected ->
+                val start = m.projection.toScreenLocation(LatLng(selected.first().lat, selected.first().lon))
+                val finish = m.projection.toScreenLocation(LatLng(selected.last().lat, selected.last().lon))
+                drawRouteEndpoint(canvas, start.x, start.y, true)
+                drawRouteEndpoint(canvas, finish.x, finish.y, false)
             }
             if (preview == null && activeTripId != null && !isPaused) {
                 stored.lastOrNull { it.sessionId == activeTripId }?.let { point ->
@@ -129,6 +141,18 @@ class FogOverlay @JvmOverloads constructor(
                 }
             }
         }
+    }
+
+    private fun drawRouteEndpoint(canvas: Canvas, x: Float, y: Float, start: Boolean) {
+        val r = 10f * dp
+        dotPaint.shader = null
+        dotPaint.style = Paint.Style.FILL
+        dotPaint.color = Color.argb(165, 14, 31, 36)
+        canvas.drawCircle(x, y, r + 3f * dp, dotPaint)
+        dotPaint.color = if (start) Color.rgb(151, 250, 194) else Color.rgb(255, 196, 142)
+        canvas.drawCircle(x, y, r, dotPaint)
+        dotPaint.color = Color.rgb(21, 37, 42)
+        canvas.drawCircle(x, y, 3.4f * dp, dotPaint)
     }
 
     private fun drawMarker(canvas: Canvas, x: Float, y: Float) {
