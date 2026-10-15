@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#132028">
+
+    <org.maplibre.android.maps.MapView
+        android:id="@+id/mapView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.unfog.app.ui.FogOverlay
+        android:id="@+id/fogOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="false"
+        android:importantForAccessibility="no" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginStart="18dp"
+        android:layout_marginEnd="18dp"
+        android:layout_marginTop="20dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="54dp"
+            android:layout_weight="1"
+            android:background="@drawable/glass_pill"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="17dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="◉"
+                android:textSize="22sp"
+                android:textColor="#29825D" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="9dp"
+                android:text="UNFOG"
+                android:fontFamily="sans-serif-medium"
+                android:textSize="17sp"
+                android:letterSpacing="0.15"
+                android:textColor="#17252D" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/historyButton"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/glass_pill"
+            android:padding="14dp"
+            android:src="@drawable/ic_history"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="История поездок" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/locateButton"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="18dp"
+        android:background="@drawable/glass_pill"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="Моё местоположение">
+        <ImageView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/ic_target"
+            android:contentDescription="Моё местоположение" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/attribution"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginBottom="274dp"
+        android:layout_marginEnd="16dp"
+        android:background="@drawable/glass_pill"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="5dp"
+        android:text="© OSM · OpenFreeMap"
+        android:textSize="10sp"
+        android:textColor="#3A4950" />
+
+    <LinearLayout
+        android:id="@+id/trackingPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_margin="14dp"
+        android:padding="20dp"
+        android:orientation="vertical"
+        android:background="@drawable/panel"
+        android:elevation="12dp">
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ГОТОВ К ИССЛЕДОВАНИЮ"
+            android:textColor="#B8F7CF"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.11"
+            android:textSize="11sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="bottom"
+            android:orientation="horizontal">
+            <TextView
+                android:id="@+id/speedText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0.0"
+                android:textColor="#F3F6F4"
+                android:fontFamily="sans-serif-light"
+                android:textSize="52sp"
+                android:includeFontPadding="false" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="9dp"
+                android:layout_marginBottom="7dp"
+                android:text="км/ч"
+                android:textSize="15sp"
+                android:textColor="#9EAEB6" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="17dp"
+            android:orientation="horizontal">
+            <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ДИСТАНЦИЯ" android:textSize="10sp" android:letterSpacing="0.07" android:textColor="#91A2AC" />
+                <TextView android:id="@+id/distanceText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="0.00 км" android:textColor="#F6F8F7" android:textSize="19sp" android:fontFamily="sans-serif-medium" />
+            </LinearLayout>
+            <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="СР. СКОРОСТЬ" android:textSize="10sp" android:letterSpacing="0.07" android:textColor="#91A2AC" />
+                <TextView android:id="@+id/averageText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="0.0 км/ч" android:textColor="#F6F8F7" android:textSize="19sp" android:fontFamily="sans-serif-medium" />
+            </LinearLayout>
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ВРЕМЯ" android:textSize="10sp" android:letterSpacing="0.07" android:textColor="#91A2AC" />
+                <TextView android:id="@+id/timeText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="00:00" android:textColor="#F6F8F7" android:textSize="19sp" android:fontFamily="sans-serif-medium" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="58dp"
+            android:layout_marginTop="20dp"
+            android:orientation="horizontal">
+            <TextView
+                android:id="@+id/primaryButton"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="match_parent"
+                android:background="@drawable/mint_button"
+                android:gravity="center"
+                android:text="Начать поездку"
+                android:textColor="#162E25"
+                android:textSize="16sp"
+                android:fontFamily="sans-serif-medium" />
+            <TextView
+                android:id="@+id/finishButton"
+                android:layout_width="104dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/dark_button"
+                android:gravity="center"
+                android:text="Завершить"
+                android:textColor="#F5F7F5"
+                android:textSize="14sp"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
