@@ -156,7 +156,7 @@ class TripDatabase(context: Context) : SQLiteOpenHelper(context, "unfog_trips.db
         }
     }
 
-    /** Rejects GPS jumps and stationary jitter; samples count as discoveries only here. */
+    /** Record frequent, trustworthy fixes. Large GPS gaps start a new line segment. */
     @Synchronized fun recordLocation(tripId: Long, location: Location): Boolean {
         val trip = getTrip(tripId) ?: return false
         if (trip.status != "active") return false
@@ -165,26 +165,30 @@ class TripDatabase(context: Context) : SQLiteOpenHelper(context, "unfog_trips.db
 
         val last = lastPoint(tripId, trip.segment)
         val now = location.time.takeIf { it > 0L } ?: System.currentTimeMillis()
-        if (now < trip.startedAt - 2000L) return false // discard pre-start cached fixes
+        if (now < trip.startedAt - 2000L || now > System.currentTimeMillis() + 2000L) return false
         val distance = if (last != null) {
             val results = FloatArray(1)
             Location.distanceBetween(last.lat, last.lon, location.latitude, location.longitude, results)
             results[0].toDouble()
         } else 0.0
+        val elapsed = if (last != null) (now - last.time) / 1000.0 else 0.0
         if (last != null) {
-            val elapsed = (now - last.time) / 1000.0
             if (elapsed <= 0.0) return false
-            if (distance < maxOf(5.0, location.accuracy * 0.65)) return false
-            if (distance / elapsed > 25.0) return false // 90 km/h: likely an invalid fix
+            // Previously this was up to 23 m; 2.5–6 m now preserves turns.
+            val minimumMovement = maxOf(2.5, minOf(6.0, (last.accuracyM + location.accuracy) * 0.16))
+            if (distance < minimumMovement) return false
+            if (elapsed < 12.0 && distance / elapsed > 25.0) return false
         }
+        val gpsGap = last != null && (elapsed > 15.0 || (distance > 60.0 && elapsed > 8.0))
+        val newSegment = if (gpsGap) trip.segment + 1 else trip.segment
         val speed = when {
-            location.hasSpeed() && location.speed in 0f..25f -> location.speed
-            last != null -> (distance / ((now - last.time) / 1000.0)).toFloat()
+            location.hasSpeed() && location.speed in 0f..25f && location.speed > 0.4f -> location.speed
+            last != null && !gpsGap && elapsed > 0.0 -> (distance / elapsed).toFloat().coerceIn(0f, 25f)
             else -> 0f
         }
         val values = ContentValues().apply {
             put("trip_id", trip.id)
-            put("segment", trip.segment)
+            put("segment", newSegment)
             put("time_ms", now)
             put("lat", location.latitude)
             put("lon", location.longitude)
@@ -195,8 +199,10 @@ class TripDatabase(context: Context) : SQLiteOpenHelper(context, "unfog_trips.db
         try {
             writableDatabase.insertOrThrow("track_points", null, values)
             val updated = ContentValues().apply {
-                put("distance_m", trip.distanceM + distance)
+                // Never invent the path/distance across a long period without GPS.
+                put("distance_m", trip.distanceM + if (gpsGap) 0.0 else distance)
                 put("max_speed_mps", maxOf(trip.maxSpeedMps, speed.toDouble()))
+                if (gpsGap) put("segment", newSegment)
             }
             writableDatabase.update("trips", updated, "id=?", arrayOf(trip.id.toString()))
             writableDatabase.setTransactionSuccessful()

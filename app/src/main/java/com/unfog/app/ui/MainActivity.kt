@@ -22,11 +22,13 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.unfog.app.R
 import com.unfog.app.data.TripDatabase
+import com.unfog.app.exploration.TerritoryProgress
 import com.unfog.app.location.TrackingService
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -46,6 +48,7 @@ class MainActivity : Activity() {
     private var map: MapLibreMap? = null
     private var pendingStart = false
     private var lastLiveSpeedMps = 0f
+    private var lastSpeedFixAt = 0L
     private var lastLocatedAt = 0L
     private var previewing = false
     private var previewTripId: Long? = null
@@ -67,12 +70,17 @@ class MainActivity : Activity() {
     private val updates = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             intent?.getStringExtra(TrackingService.EXTRA_ERROR)?.let { toast(it) }
-            if (intent?.hasExtra("speed_mps") == true) {
+            if (intent?.hasExtra(TrackingService.EXTRA_SPEED) == true) {
                 lastLiveSpeedMps = intent.getFloatExtra(TrackingService.EXTRA_SPEED, 0f).coerceIn(0f, 25f)
             }
-            reloadAll()
+            if (intent?.hasExtra(TrackingService.EXTRA_FIX_TIME) == true) {
+                lastSpeedFixAt = intent.getLongExtra(TrackingService.EXTRA_FIX_TIME, 0L)
+            }
+            val pointChanged = intent?.getBooleanExtra("point_changed", false) == true
+            val stateChanged = intent?.getBooleanExtra("state_changed", false) == true
+            if (pointChanged || stateChanged) reloadAll() else updateNumbers()
             val trip = db.unfinishedTrip()
-            if (trip?.status == "active" && !previewing) panToLastPoint(trip.id, false)
+            if (pointChanged && trip?.status == "active" && !previewing) panToLastPoint(trip.id, false)
         }
     }
 
@@ -118,6 +126,7 @@ class MainActivity : Activity() {
         }
 
         findViewById<View>(R.id.historyButton).setOnClickListener { showHistory() }
+        findViewById<View>(R.id.territoryButton).setOnClickListener { showTerritorySettings() }
         previewCloseButton.setOnClickListener { clearPreview() }
         findViewById<View>(R.id.locateButton).setOnClickListener {
             if (hasFineLocation()) locateUser() else askLocationPermission(false)
@@ -204,8 +213,12 @@ class MainActivity : Activity() {
 
     private fun panToLastPoint(tripId: Long, force: Boolean) {
         val last = db.points(tripId).lastOrNull() ?: return
-        if (force || System.currentTimeMillis() - lastLocatedAt > 4500L) {
-            map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(last.lat, last.lon), 16.0))
+        if (force || System.currentTimeMillis() - lastLocatedAt > 850L) {
+            val destination = LatLng(last.lat, last.lon)
+            val update = if (force || (map?.cameraPosition?.zoom ?: 0.0) < 13.0)
+                CameraUpdateFactory.newLatLngZoom(destination, 16.0)
+            else CameraUpdateFactory.newLatLng(destination)
+            map?.animateCamera(update, 800)
             lastLocatedAt = System.currentTimeMillis()
         }
     }
@@ -221,14 +234,17 @@ class MainActivity : Activity() {
         val viewedTrip = if (previewing) previewTripId?.let { db.getTrip(it) } else null
         val displayedTrip = viewedTrip ?: recordingTrip
         if (recordingTrip?.status != "active") lastLiveSpeedMps = 0f
+        val gpsStale = recordingTrip?.status == "active" && lastSpeedFixAt > 0L &&
+            System.currentTimeMillis() - lastSpeedFixAt > 5000L
         statusText.text = when {
             viewedTrip != null -> "ПРОСМОТР · МАКС. СКОРОСТЬ"
+            recordingTrip?.status == "active" && gpsStale -> "●  ОЖИДАЕМ GPS · ПРОВЕРЬ ГЕОЛОКАЦИЮ"
             recordingTrip?.status == "active" -> "●  ИДЁТ ЗАПИСЬ ПОЕЗДКИ"
             recordingTrip?.status == "paused" -> "Ⅱ  ПАУЗА · ТУМАН НЕ ОТКРЫВАЕТСЯ"
             else -> "ГОТОВ К ИССЛЕДОВАНИЮ"
         }
         val speedKmh = if (viewedTrip != null) viewedTrip.maxSpeedMps * 3.6
-            else if (recordingTrip?.status == "active") lastLiveSpeedMps * 3.6 else 0.0
+            else if (recordingTrip?.status == "active" && !gpsStale) lastLiveSpeedMps * 3.6 else 0.0
         speedText.text = String.format(Locale.US, "%.1f", speedKmh)
         distanceText.text = String.format(Locale.US, "%.2f км", (displayedTrip?.distanceM ?: 0.0) / 1000.0)
         val duration = displayedTrip?.elapsed() ?: 0L
@@ -384,6 +400,166 @@ class MainActivity : Activity() {
         dialog.show()
         dialog.window?.setLayout(resources.displayMetrics.widthPixels - px(24),
             (resources.displayMetrics.heightPixels * 0.78).toInt())
+    }
+
+    /** Area exploration uses actual polygon boundaries, not a rectangle around a city name. */
+    private fun showTerritorySettings() {
+        val territory = TerritoryProgress(applicationContext)
+        val dialog = Dialog(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(px(22), px(20), px(22), px(22))
+            background = rounded(Color.rgb(24, 36, 45), 25f)
+        }
+        val close = label("✕", 22f, Color.WHITE, false).apply {
+            gravity = Gravity.END
+            setOnClickListener { dialog.dismiss() }
+        }
+        content.addView(close, rowParams(34))
+        content.addView(label("Настройки", 27f, Color.WHITE, true))
+        content.addView(label("UNFOG 0.5.0 · тестовая версия", 12f, 0xFF9EADB5.toInt(), false).apply {
+            setPadding(0, px(7), 0, px(19))
+        })
+        content.addView(label("Исследование территорий", 20f, Color.WHITE, true))
+        content.addView(label("Выбери город, регион или страну. Все поездки сохраняются в общей истории — меняется только процент исследованной площади.",
+            14f, 0xFFB9CAD0.toInt(), false).apply { setPadding(0, px(10), 0, px(16)) })
+        val nameLabel = label(territory.savedName() ?: "Территория не выбрана", 17f, 0xFFB8F7CF.toInt(), true)
+        content.addView(nameLabel)
+        val stats = label("", 17f, Color.WHITE, true).apply { setPadding(0, px(12), 0, px(12)) }
+        content.addView(stats)
+        val input = EditText(this).apply {
+            hint = "Например, Саратов, Россия"
+            setSingleLine(true)
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setHintTextColor(0xFF9DAFB8.toInt())
+            background = rounded(0xFF30414A.toInt(), 11f)
+            setPadding(px(12), px(13), px(12), px(13))
+        }
+        content.addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(50)))
+        val searchButton = label("Найти территорию →", 16f, 0xFFB8F7CF.toInt(), true).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, px(16), 0, px(16))
+        }
+        content.addView(searchButton)
+        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(results)
+        content.addView(label("Туман войны: треугольная сетка. Новые ячейки открываются только во время активной записи поездки. На паузе прогресс не меняется.",
+            13f, 0xFFBED8CB.toInt(), false).apply { setPadding(0, px(10), 0, px(2)) })
+        val finePrint = label("Расчёт приблизительный: открываются треугольные ячейки рядом с GPS-треком (радиус 40 м), " +
+            "площадь выбранных административных границ OpenStreetMap. " +
+            "Поиск выполняется только по нажатию, для него нужен интернет. " +
+            "Сами координаты поездок никуда не отправляются.",
+            12f, 0xFF9DAFB8.toInt(), false).apply { setPadding(0, px(18), 0, 0) }
+        content.addView(finePrint)
+
+        fun refreshStats() {
+            val saved = territory.savedName()
+            nameLabel.text = saved ?: "Территория не выбрана"
+            if (saved == null) {
+                stats.text = "Выбери локацию, чтобы увидеть свой прогресс"
+                return
+            }
+            stats.text = "Считаем исследованную площадь…"
+            Thread {
+                try {
+                    val result = territory.calculate(db.points())
+                    runOnUiThread {
+                        if (!dialog.isShowing) return@runOnUiThread
+                        if (result == null) {
+                            stats.text = "Нет сохранённой территории"
+                            return@runOnUiThread
+                        }
+                        val percent = when {
+                            result.percentage == 0.0 -> "0%"
+                            result.percentage < 0.000001 -> "<0,000001%"
+                            result.percentage < 0.01 -> String.format(Locale("ru"), "%.6f%%", result.percentage)
+                            else -> String.format(Locale("ru"), "%.2f%%", result.percentage)
+                        }
+                        stats.text = "$percent открыто\n" +
+                            String.format(Locale("ru"), "%.3f км² из %.0f км²\nОткрыто треугольников: %d", result.visitedKm2, result.areaKm2, result.visitedTriangles)
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread { if (dialog.isShowing) stats.text = "Ошибка подсчёта: ${e.localizedMessage ?: "неизвестная"}" }
+                }
+            }.start()
+        }
+
+        searchButton.setOnClickListener {
+            val query = input.text.toString().trim()
+            if (query.length < 2) {
+                toast("Введи название города или страны")
+                return@setOnClickListener
+            }
+            searchButton.isEnabled = false
+            results.removeAllViews()
+            results.addView(label("Ищем границы…", 14f, 0xFFB9CAD0.toInt(), false))
+            Thread {
+                try {
+                    val matches = territory.search(query)
+                    runOnUiThread {
+                        if (!dialog.isShowing) return@runOnUiThread
+                        searchButton.isEnabled = true
+                        results.removeAllViews()
+                        if (matches.isEmpty()) {
+                            results.addView(label("Локации с границами не найдены. Уточни название.",
+                                14f, Color.WHITE, false))
+                        }
+                        matches.forEach { hit ->
+                            val option = label(hit.displayName, 14f, Color.WHITE, false).apply {
+                                setPadding(px(8), px(14), px(8), px(14))
+                                background = rounded(0xFF2B3D46.toInt(), 10f)
+                                setOnClickListener {
+                                    searchButton.isEnabled = false
+                                    results.removeAllViews()
+                                    results.addView(label("Загружаем границы…", 14f, Color.WHITE, false))
+                                    Thread {
+                                        try {
+                                            territory.select(hit)
+                                            runOnUiThread {
+                                                if (!dialog.isShowing) return@runOnUiThread
+                                                searchButton.isEnabled = true
+                                                results.removeAllViews()
+                                                refreshStats()
+                                            }
+                                        } catch (e: Exception) {
+                                            runOnUiThread {
+                                                if (!dialog.isShowing) return@runOnUiThread
+                                                searchButton.isEnabled = true
+                                                results.removeAllViews()
+                                                results.addView(label("Не удалось загрузить границы: ${e.localizedMessage}",
+                                                    14f, 0xFFFFB6AF.toInt(), false))
+                                            }
+                                        }
+                                    }.start()
+                                }
+                            }
+                            val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = px(8) }
+                            results.addView(option, params)
+                        }
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        if (!dialog.isShowing) return@runOnUiThread
+                        searchButton.isEnabled = true
+                        results.removeAllViews()
+                        results.addView(label("Ошибка поиска: ${e.localizedMessage ?: "проверь интернет"}",
+                            14f, 0xFFFFB6AF.toInt(), false))
+                    }
+                }
+            }.start()
+        }
+        val scroll = ScrollView(this).apply { addView(content); setBackgroundColor(Color.TRANSPARENT) }
+        dialog.setContentView(scroll)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.show()
+        dialog.window?.apply {
+            setLayout(resources.displayMetrics.widthPixels - px(24),
+                (resources.displayMetrics.heightPixels * 0.8).toInt())
+            setGravity(Gravity.BOTTOM)
+        }
+        refreshStats()
     }
 
     private fun label(value: String, sp: Float, color: Int, bold: Boolean): TextView = TextView(this).apply {

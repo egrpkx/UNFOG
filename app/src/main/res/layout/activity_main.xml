@@ -53,6 +53,24 @@
                 android:textColor="#17252D" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/territoryButton"
+            android:layout_width="118dp"
+            android:layout_height="54dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/glass_pill"
+            android:drawableStart="@drawable/ic_settings"
+            android:drawablePadding="6dp"
+            android:gravity="center"
+            android:paddingHorizontal="11dp"
+            android:text="Настройки"
+            android:fontFamily="sans-serif-medium"
+            android:textColor="#243B3C"
+            android:textSize="12sp"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="Настройки и исследование территорий" />
+
         <ImageView
             android:id="@+id/historyButton"
             android:layout_width="54dp"
